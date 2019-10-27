@@ -14,41 +14,10 @@
  * limitations under the License.
  */
 
+@import 'themes';
+@import 'variables';
 @import 'fonts';
-
-$colorBackground: #fff;
-
-$colorBlackTextPrimary: rgba(#000, .87);
-$colorBlackTextSecondary: rgba(#000, .54);
-$colorBlackTextDisabled: rgba(#000, .38);
-$colorWhiteTextPrimary: rgba(#fff, 1);
-$colorWhiteTextSecondary: rgba(#fff, .7);
-$colorWhiteTextDisabled: rgba(#fff, .5);
-
-$colorTooltipBackground: #263238;
-$colorTooltipText: #fff;
-
-$fontStackMono: 'Roboto Mono', monospace;
-$fontStackSansSerif: BlinkMacSystemFont, Roboto, sans-serif;
-
-$thinBorderColor: rgba(#000, .12);
-
-$hueIconWidth: 14px;
-$sidebarWidth: 12px * 2 + $hueIconWidth;
-
-$animTimeMedium: .3s;
-$animTimeFast: $animTimeMedium / 2;
-$animTimeVeryFast: $animTimeMedium / 3;
-$animTimeSlow: $animTimeMedium * 1.5;
-
-$tilePadding: 8px;
-
-@mixin nodrag {
-  &,
-  & * {
-    -webkit-app-region: no-drag;
-  }
-}
+@import 'util';
 
 html,
 body {
@@ -60,6 +29,11 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   cursor: default;
+  @include theme-light;
+}
+
+body.is-dark-mode {
+  @include theme-dark;
 }
 
 * {
@@ -85,20 +59,20 @@ body {
   @include nodrag;
 
   svg {
-    fill: $colorBlackTextDisabled;
+    fill: $colorOnTertiary;
     width: 16px;
     height: 16px;
   }
 
   &:hover {
     svg {
-      fill: $colorBlackTextSecondary;
+      fill: $colorOnSecondary;
     }
   }
 
   &:active {
     svg {
-      fill: $colorBlackTextPrimary;
+      fill: $colorOnPrimary;
     }
   }
 }
@@ -113,7 +87,14 @@ body {
   padding-bottom: 8px;
   display: flex;
   flex-direction: column;
-  box-shadow: -1px 0 0 $thinBorderColor inset;
+  box-shadow: 1px 0 0 $colorThinBorder;
+
+  .separator {
+    margin: 8px 0;
+    height: 1px;
+    background-color: $colorThinBorder;
+    flex: 0 0 auto;
+  }
 }
 
 .search-button,
@@ -135,7 +116,7 @@ body {
 
 .search-button {
   svg {
-    fill: $colorBlackTextDisabled;
+    fill: $colorOnTertiary;
     width: 20px;
     height: 20px;
     transition: fill $animTimeVeryFast ease;
@@ -146,7 +127,7 @@ body {
   }
 
   &.is-selected svg {
-    fill: $colorBlackTextPrimary;
+    fill: $colorOnPrimary;
   }
 
   &.is-selected .search-label {
@@ -189,9 +170,11 @@ body {
 
 .search-input {
   height: 28px;
+  background-color: $colorBackground;
+  color: $colorOnPrimary;
   box-sizing: border-box;
   width: 100%;
-  border: 1px solid $thinBorderColor;
+  border: 1px solid $colorThinBorder;
   border-radius: 2px;
   padding: 4px 8px;
   margin-bottom: 8px;
@@ -204,7 +187,7 @@ body {
   margin-top: 100%;
   text-align: center;
   font-size: 12px;
-  color: $colorBlackTextDisabled;
+  color: $colorOnTertiary;
   padding: 0 10px;
   line-height: 16px;
 }
@@ -244,26 +227,39 @@ body {
 }
 
 .content-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   flex: 1;
-  overflow-y: auto;
+  overflow-y: scroll;
   z-index: 1;
-}
+  @include nodrag;
 
-.search-section {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-  z-index: 1;
+  > * {
+    @include draggable;
+  }
 
-  &.is-hidden {
-    display: none;
+  &::-webkit-scrollbar {
+    background-color: var(--theme-color-bg);
+    width: $scrollbarWidth;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(#888, .3);
+    border-radius: 100px;
+    border: 2px solid var(--theme-color-bg);
+
+    &:hover {
+      background-color: rgba(#888, .5);
+    }
   }
 }
 
+.search-section,
 .value-list {
-  flex: 1;
-  overflow-y: auto;
+  flex: 1 0 auto;
   padding: 12px;
+  padding-right: 12px - $scrollbarWidth;
   z-index: 1;
 
   &.is-hidden {
@@ -275,7 +271,21 @@ body {
   font-size: 10px;
   line-height: 12px;
   font-weight: 500;
-  color: $colorBlackTextSecondary;
+  color: $colorOnSecondary;
+  margin-bottom: 8px;
+}
+
+.value-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid $colorThinBorder;
+}
+
+.value-group-heading {
+  font-size: 10px;
+  line-height: 12px;
+  font-weight: 500;
+  color: $colorOnSecondary;
   margin-bottom: 8px;
 }
 
@@ -285,10 +295,10 @@ body {
   margin-bottom: 2px;
   height: 32px;
   border-radius: 2px;
-  color: $colorBlackTextPrimary;
+  color: #000;
 
   &.is-white {
-    color: $colorWhiteTextPrimary;
+    color: #fff;
   }
 
   .color-tile-hex,
@@ -407,7 +417,7 @@ body {
   margin-top: 128px;
 
   svg {
-    fill: $colorBlackTextDisabled;
+    fill: $colorOnTertiary;
     margin: 0 auto;
     height: 40px;
     width: 40px;
@@ -418,13 +428,13 @@ body {
   text-align: center;
   font-size: 10px;
   line-height: 16px;
-  color: $colorBlackTextSecondary;
+  color: $colorOnSecondary;
 }
 
 .matching-material-label {
   margin-top: 16px;
   margin-bottom: 4px;
-  color: $colorBlackTextSecondary;
+  color: $colorOnSecondary;
   font-size: 10px;
   line-height: 16px;
 }

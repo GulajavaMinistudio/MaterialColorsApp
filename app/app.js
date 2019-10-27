@@ -21,12 +21,10 @@ const $ = require('jquery');
 const electron = require('electron');
 const remote = electron.remote;
 const Menu = remote.Menu;
-const MenuItem = remote.MenuItem;
 
 const tinycolor = require('tinycolor2');
 const fs = require('fs');
 const path = require('path');
-const assert = require('assert');
 
 const CONFIG_FILENAME = '.materialcolorsapp.json';
 const DEFAULT_VALUE_COPY_FORMAT = {
@@ -44,12 +42,39 @@ class MaterialColors {
     this._loadConfig();
 
     this.COLORS = require('./colors.js');
+    if (this._config.extraColors) {
+      this.COLORS[Object.keys(this.COLORS)[0]]._startGroup = true;
+      this.COLORS = {
+        ...this._config.extraColors,
+        ...this.COLORS,
+      };
+    };
 
-    this._allMaterialValues = [];
-    Object.keys(this.COLORS).map(hueName =>
-        Object.keys(this.COLORS[hueName]).map(valueName =>
-            this._allMaterialValues.push(
-                Object.assign({ hueName, valueName }, this.COLORS[hueName][valueName]))));
+    this._searchableValues = [];
+    Object.keys(this.COLORS).forEach(hueName => {
+      let colorObj = this.COLORS[hueName];
+
+      (colorObj._groups || []).forEach(group => {
+        (group.colors || []).forEach(color => {
+          this._searchableValues.push({
+            hueName,
+            groupName: group.title || null,
+            valueName: color.name,
+            ...color
+          });
+        });
+      });
+
+      Object.keys(colorObj)
+          .filter(k => !k.startsWith('_'))
+          .forEach(valueName => {
+            this._searchableValues.push({
+              hueName,
+              valueName,
+              ...this.COLORS[hueName][valueName]
+            });
+          });
+    });
 
     this.CLASS_NAMES = {
       closeButton: 'close-button',
@@ -63,6 +88,7 @@ class MaterialColors {
       hueIcon: 'hue-icon',
       hueIconSelector: 'hue-icon-selector',
       hueLabel: 'hue-label',
+      isDarkMode: 'is-dark-mode',
       isHidden: 'is-hidden',
       isSelected: 'is-selected',
       isWhite: 'is-white',
@@ -75,8 +101,11 @@ class MaterialColors {
       searchLabel: 'search-label',
       searchResults: 'search-results',
       searchSection: 'search-section',
+      separator: 'separator',
       sidebar: 'sidebar',
       updateBanner: 'update-banner',
+      valueGroup: 'value-group',
+      valueGroupHeading: 'value-group-heading',
       valueHeading: 'value-heading',
       valueList: 'value-list',
       notFoundIcon: 'not-found-icon',
@@ -88,6 +117,9 @@ class MaterialColors {
   }
 
   _init() {
+    this.isDarkMode = !!document.location.search.includes('darkMode=true');
+    $('body').toggleClass(this.CLASS_NAMES.isDarkMode, this.isDarkMode);
+
     this.$sidebar = $(`.${this.CLASS_NAMES.sidebar}`);
     this.$contentArea = $(`.${this.CLASS_NAMES.contentArea}`);
     this.$searchSection = $(`.${this.CLASS_NAMES.searchSection}`);
@@ -114,6 +146,11 @@ class MaterialColors {
           .text(`Update to v${releaseName}`)
           .click(() => electron.ipcRenderer.send('install-update'))
           .appendTo('body');
+    });
+
+    electron.ipcRenderer.on('dark-mode-updated', (event, isDarkMode) => {
+      this.isDarkMode = isDarkMode;
+      $('body').toggleClass(this.CLASS_NAMES.isDarkMode, isDarkMode);
     });
 
     $(window).on('keydown keyup', event =>
@@ -151,19 +188,29 @@ class MaterialColors {
         firstHueName = hueName;
       }
 
+      if (color._startGroup) {
+        $('<div>')
+            .addClass(`${this.CLASS_NAMES.separator}`)
+            .appendTo(this.$sidebar);
+      }
+
       let $hue = $('<div>')
           .addClass(`${this.CLASS_NAMES.hue} ${this.CLASS_NAMES.hue}-${hueName}`)
           .click(() => this._selectHue(hueName))
           .appendTo(this.$sidebar);
 
+      let keyColor = this.isDarkMode
+          ? color._selectorDark || color['300'].hex
+          : color._selectorLight || color['500'].hex;
+
       let $hueIcon = $('<div>')
           .addClass(this.CLASS_NAMES.hueIcon)
-          .css('background-color', color['500'].hex)
+          .css('background-color', keyColor)
           .appendTo($hue);
 
       $('<div>')
           .addClass(this.CLASS_NAMES.hueIconSelector)
-          .css('background-color', color['700'].hex)
+          .css('background-color', keyColor)
           .appendTo($hueIcon);
 
       $('<div>')
@@ -247,10 +294,39 @@ class MaterialColors {
     // for each value in the hue
     let color = this.COLORS[hueName];
     for (let valueName in this.COLORS[hueName]) {
+      if (valueName.startsWith('_')) {
+        continue;
+      }
+
       color[valueName].valueName = valueName;
       color[valueName].hueName = hueName;
       this._buildValueTile(color[valueName])
           .appendTo(this.$valueList);
+    }
+
+    // build grouped items
+    for (let group of color._groups || []) {
+      let $valueGroup = $('<div>')
+          .addClass(this.CLASS_NAMES.valueGroup)
+          .appendTo(this.$valueList);
+
+      if (group.title) {
+        $('<div>')
+            .addClass(this.CLASS_NAMES.valueGroupHeading)
+            .text(group.title)
+            .appendTo($valueGroup);
+      }
+
+      // for each value in the hue
+      for (let color of group.colors) {
+        color.valueName = color.name;
+        if (group.title) {
+          color.groupName = group.title;
+        }
+        color.hueName = hueName;
+        this._buildValueTile(color)
+            .appendTo($valueGroup);
+      }
     }
 
     // TODO(abhiomkar): use this dom cache instead of re-rendering.
@@ -270,13 +346,13 @@ class MaterialColors {
       // search input is valid.
       let hex = inputColor.toHexString();
       let alpha = inputColor.getAlpha();
-      let materialValues = this._getMaterialValuesByHex(hex);
+      let searchResults = this._getSearchableValuesByHex(hex);
       let $colorTile;
       this.$searchResults.empty();
 
-      if (materialValues.length) {
+      if (searchResults.length) {
         // material color
-        materialValues.forEach(value => {
+        searchResults.forEach(value => {
           // update material color with alpha.
           if (alpha) {
             value = Object.assign({alpha}, value);
@@ -286,16 +362,16 @@ class MaterialColors {
         });
       } else {
         // Non-material color.
-        this._buildValueTile({ hex, alpha, white: inputColor.isDark() }, true)
+        this._buildValueTile({ hex, alpha }, true)
             .appendTo(this.$searchResults);
 
         $('<div>')
             .addClass(this.CLASS_NAMES.matchingMaterialLabel)
-            .text('Nearest Material colors')
+            .text('Similar colors')
             .appendTo(this.$searchResults);
 
         // suggest a closest material color
-        this._getCloseMaterialValues(inputColor)
+        this._getCloseSearchableValues(inputColor)
             .forEach(val => this._buildValueTile(val, true).appendTo(this.$searchResults));
       }
     } else {
@@ -318,7 +394,7 @@ class MaterialColors {
     }
   }
 
-  _showValueContextMenu(hexValue, hueName, valueName, alpha) {
+  _showValueContextMenu(hexValue, hueName, groupName, valueName, alpha) {
     let withHash = hexValue;
     let noHash = hexValue.replace(/#/g, '');
 
@@ -341,11 +417,12 @@ class MaterialColors {
     let valueFormats = [];
     if (this._config.copyFormats && this._config.copyFormats.length) {
       this._config.copyFormats.forEach(format => {
-        valueFormats.push(this._renderCustomColorFormatString(format, {hueName, valueName, alpha}));
+        valueFormats.push(this._renderCustomColorFormatString(format,
+            {hueName, groupName, valueName, alpha}));
       });
     } else {
       valueFormats.push(this._renderCustomColorFormatString(
-          DEFAULT_VALUE_COPY_FORMAT, {hueName, valueName, alpha}));
+          DEFAULT_VALUE_COPY_FORMAT, {hueName, groupName, valueName, alpha}));
     }
 
     let formatToMenuItemTemplate_ = format => ({
@@ -366,9 +443,10 @@ class MaterialColors {
   _buildValueTile(value, largeTile) {
     let tileBackground;
     let isWhite;
+    let tc = tinycolor(value.hex);
 
     if (value.alpha) {
-      tileBackground = tinycolor(value.hex).setAlpha(value.alpha).toString();
+      tileBackground = tc.setAlpha(value.alpha).toString();
     } else {
       tileBackground = value.hex;
     }
@@ -376,7 +454,7 @@ class MaterialColors {
     if (value.alpha && value.alpha < 0.5) {
       isWhite = false;
     } else {
-      isWhite = value.white;
+      isWhite = tc.isDark();
     }
 
     let $colorTile = $('<div>')
@@ -386,7 +464,8 @@ class MaterialColors {
         .css('background-color', tileBackground)
         .contextmenu(event => {
           event.preventDefault();
-          this._showValueContextMenu(value.hex, value.hueName, value.valueName, value.alpha);
+          this._showValueContextMenu(
+              value.hex, value.hueName, value.groupName, value.valueName, value.alpha);
         });
 
     let $hex = $('<div>')
@@ -401,17 +480,18 @@ class MaterialColors {
     $colorTile.on('refresh-tile', (event, opts) =>
         $hex.text(value.hex.toUpperCase().substring((opts && opts.hideHash) ? 1 : 0)));
 
-    if (value.valueName) {
+    if (value.name || value.valueName) {
       $('<div>')
           .addClass(this.CLASS_NAMES.colorTileValueName)
-          .text(value.valueName.toUpperCase())
+          .text(value.name || value.valueName.toUpperCase())
           .click(() => {
             let valueCopyFormat = (this._config.copyFormats && this._config.copyFormats.length)
                 ? this._config.copyFormats[0]
                 : DEFAULT_VALUE_COPY_FORMAT;
             let copyText = this._renderCustomColorFormatString(valueCopyFormat, {
               hueName: value.hueName,
-              valueName: value.valueName,
+              groupName: value.groupName || null,
+              valueName: value.name || value.valueName,
               alpha: value.alpha,
             });
             electron.clipboard.writeText(copyText);
@@ -423,7 +503,8 @@ class MaterialColors {
     if (value.hueName && largeTile) {
       $('<span>')
           .addClass(this.CLASS_NAMES.colorTileHueName)
-          .text(this._getDisplayLabelForHue(value.hueName))
+          .text(this._getDisplayLabelForHue(value.hueName)
+              + (value.groupName ? ` – ${value.groupName}` : ''))
           .click(() => this._selectHue(value.hueName))
           .appendTo($colorTile);
     }
@@ -456,13 +537,13 @@ class MaterialColors {
                      Math.pow(colorA._b - colorB._b, 2)); // blue
   }
 
-  _getMaterialValuesByHex(hex) {
-    return this._allMaterialValues
+  _getSearchableValuesByHex(hex) {
+    return this._searchableValues
         .filter(value => value.hex.toLowerCase() === hex.toLowerCase());
   }
 
-  _getCloseMaterialValues(inputColor) {
-    return this._allMaterialValues
+  _getCloseSearchableValues(inputColor) {
+    return this._searchableValues
         .map(value => ({ value, difference: this._getColorDifference(inputColor, value.hex) }))
         .sort((a, b) => (a.difference - b.difference))
         .slice(0, 3)
@@ -502,6 +583,10 @@ class MaterialColors {
     data.hueName = data.hueName || '';
     data.valueName = data.valueName || '';
 
+    if (data.groupName) {
+      data.valueName = data.groupName + '-' + data.valueName;
+    }
+
     if (data.alpha) {
       data.alpha = (data.alpha * 100).toFixed(0);
     } else {
@@ -521,29 +606,30 @@ class MaterialColors {
       }
 
       // text transform, lower, upper or capitalize
+      let transformers = [];
       if (textTransform === 'x') {
-        data.hueName = data.hueName.toLowerCase();
-        data.valueName = data.valueName.toLowerCase();
+        transformers.push(s => s.toLowerCase());
       } else if (textTransform === 'X') {
-        data.hueName = data.hueName.toUpperCase();
-        data.valueName = data.valueName.toUpperCase();
+        transformers.push(s => s.toUpperCase());
       } else if (textTransform === 'Xx') {
-        // capitalize text
-        data.hueName = this._sentenceCase(data.hueName);
-        data.valueName = this._sentenceCase(data.valueName);
+        transformers.push(s => this._sentenceCase(s));
       }
 
       // Replacer
       // d - delete spaces between the hue name (eg: LightBlue)
       // * - replace spaces between hue name with any character (eg: LIGHT_BLUE)
       // if no replacer found add a space between hue name if any (eg: Light Blue)
-      if (replacer === 'd') {
-        data.hueName = data.hueName.replace('-', '');
-      } else if (replacer) {
-        data.hueName = data.hueName.replace('-', replacer);
-      } else {
-        data.hueName = data.hueName.replace('-', ' ');
-      }
+      replacer = replacer
+          ? (replacer === 'd'
+              ? ''
+              : replacer)
+          : ' ';
+
+      transformers.push(s => s.replace(/[- ]/g, replacer));
+
+      let applyAllTransformers = src => transformers.reduce((s, t) => t(s), src);
+      data.hueName = applyAllTransformers(data.hueName);
+      data.valueName = applyAllTransformers(data.valueName);
     }
 
     string = string.replace(/\$HUE/g, data.hueName)
@@ -557,20 +643,18 @@ class MaterialColors {
     const configFilePath = path.join(this._getHomeDirectory(), CONFIG_FILENAME);
 
     this._config = {};
-    fs.readFile(configFilePath, (err, data) => {
+    try {
+      let data = fs.readFileSync(configFilePath);
       if (!data) {
         return;
       }
 
-      try {
-        this._config = JSON.parse(data);
-        return true;
+      this._config = JSON.parse(data);
 
-      } catch (e) {
-        console.warn('Error reading config file.', e);
-        return false;
-      }
-    });
+    } catch (e) {
+      console.warn('Error reading config file.', e);
+      return false;
+    }
   }
 
   _sentenceCase(str) {

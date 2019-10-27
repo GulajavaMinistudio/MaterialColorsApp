@@ -14,6 +14,16 @@
  * limitations under the License.
  */
 
-module.exports = {
-  UPDATE_FEED_URL: 'http://roman-update-service.appspot.com/s/check_updates'
-};
+@mixin nodrag {
+  &,
+  & * {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@mixin draggable {
+  &,
+  & * {
+    -webkit-app-region: drag;
+  }
+}
